@@ -1,24 +1,7 @@
 from sionna.rt import RadioMaterial
 from utils.material_properties import calculate_freshwater_permittivity, calculate_material_properties
 from sionna.rt.radio_materials.radio_material import DEFAULT_THICKNESS
-
-# Material Database (Template)
-# You can add your own materials here
-# Note: "freshwater" does not use a,b,c,d parameters. It uses a specific function instead.
-MATERIAL_DATABASE = {
-    "asphalt_concrete": {
-        "type": "itur_abcd",
-        "a": 4.83, "b": 0.0, "c": 0.0108, "d": 1.3969,
-        "f_min": 1.0, "f_max": 40.0,
-        "color": (0.12, 0.12, 0.13), # Dark gray/asphalt
-    },
-    "freshwater": {
-        "type": "itu_p527",
-        "f_min": 0.1,  # Set your preferred minimum frequency in GHz
-        "f_max": 1000.0, # Set your preferred maximum frequency in GHz
-        "color": (0.00, 0.15, 0.75), # Deep blue water
-    },
-}
+from config import MATERIAL_DATABASE
 
 def _format_frequency(freq_hz):
     """

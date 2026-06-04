@@ -23,7 +23,7 @@ def add_tx(scene, name, position, orientation):
         display_radius=DISPLAY_RADIUS)
     scene.add(tx)
 
-def add_txs(scene, df_tx: pd.DataFrame, terrain_filename):
+def add_txs(scene, df_tx: pd.DataFrame, terrain_filename=None):
     """
     Batch map geographic Tx coordinates into the 3D scene and instantiate
     Transmitter objects.
@@ -54,7 +54,7 @@ def add_rx(scene, name, position):
     rx = rt.Receiver(name=name, position=position, display_radius=DISPLAY_RADIUS)
     scene.add(rx)
 
-def add_rxs(scene, df_rx: pd.DataFrame, terrain_filename):
+def add_rxs(scene, df_rx: pd.DataFrame, terrain_filename=None):
     """
     Batch map geographic Rx coordinates into the 3D scene and instantiate
     Receiver objects.
@@ -82,5 +82,7 @@ def set_frequence(scene, frequence, unit:str):
         scene.frequency = frequence * 1e6
     elif unit.lower() == 'ghz':
         scene.frequency = frequence * 1e9
+    elif unit.lower() == 'hz':
+        scene.frequency = frequence
     else:
         raise ValueError(f"Unsupported frequency unit: {unit}")

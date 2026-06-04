@@ -1,7 +1,5 @@
 import math
-
-DEFAULT_SALINITY = 0.5   # Unit: g/kg or ppt
-DEFAULT_TEMPERATURE = 20.0  # Unit: celsius
+from config import DEFAULT_SALINITY, DEFAULT_TEMPERATURE
 
 def calculate_freshwater_permittivity(f_ghz):
     """

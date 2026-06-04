@@ -4,18 +4,7 @@ import drjit as dr
 import numpy as np
 import pandas as pd
 import sionna.rt as rt
-
-# Define the geographical boundary of the target region
-LAT_MAX, LAT_MIN = 48.7409, 48.7171
-LON_MIN, LON_MAX = 2.2451, 2.3013
-
-# Calculate the center origin point of the scene
-LAT_ORIGIN=(LAT_MAX + LAT_MIN)/2
-LON_ORIGIN=(LON_MIN + LON_MAX)/2
-ALT_ORIGIN=-42
-
-DEFAULT_AZIMUTH_MUTIPLITER=1
-DEFAULT_OFF_SET=0
+from config import LON_ORIGIN, LAT_ORIGIN, ALT_ORIGIN, DEFAULT_AZIMUTH_MUTIPLITER, DEFAULT_OFF_SET
 
 # Determine the corresponding UTM (Universal Transverse Mercator) zone based on longitude
 _ZONE = int((LON_ORIGIN + 180) / 6) + 1
@@ -100,9 +89,10 @@ def latlonh_to_xyz_batch(
     # Calculate relative coordinates based on the scene's origin center
     xs = x_objs - x_origin
     ys = y_objs - y_origin
-    # zs = h_arr - ALT_ORIGIN
-    # Optional: get the terrain height
-    zs = h_arr + get_terrain_z_batch(xs, ys, terrain_filename)
+    if terrain_filename is None:
+        zs = h_arr - ALT_ORIGIN
+    else:
+        zs = h_arr + get_terrain_z_batch(xs, ys, terrain_filename)
 
     # If the original input was a float, extract the scalar from the 0-d/1-d array
     if isinstance(lat, float) or isinstance(lat, int):
