@@ -1,12 +1,14 @@
 from pathlib import Path 
 
 SCENE_FILENAME = Path('data/blender/massy.xml')
-TERRAIN_FILENAME = Path('data/blender/terrain.xml')
-FREQUENCY = 3500  # When use massy map: only supports: 700, 800, 900, 1800, 2100, 2600, 3500
-FREQUENCY_UNIT='mhz' # Only supports: hz, mhz, ghz
+TERRAIN_FILENAME = Path('data/blender/terrain.xml')  # Optional: if it is None, we use ALT_ORIGIN to get terrain height
+FREQUENCY = 3500  # When use massy map, only supports: 700, 800, 900, 1800, 2100, 2600, 3500
+FREQUENCY_UNIT='mhz' # Only supports: hz, mhz, ghz; when use massp map, only supports mhz
 TRANSMITTER_DIRECTORY = Path('data/transimitters')
 RECEIVER_FILENAME = Path('data/sensor_location.csv')
-
+PRE_TRANSMITTER_FILENAME = Path('data/bs_antenna_verify - Copy.csv')
+PRE_TRANSMITTER_FILE_ENCODE = 'cp1252'
+FILE_ENCODE = 'utf-8-sig'
 
 # Define the geographical boundary of the target region
 LAT_MAX, LAT_MIN = 48.7409, 48.7171
