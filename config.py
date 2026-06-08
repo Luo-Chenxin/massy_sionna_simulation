@@ -24,12 +24,12 @@ FILTER_POSTAL_CODE = r'^75\d{3}$'
 # Extended Formula:
 # latitude 1° is approximately equal to 111,000m
 # 500 / 111 000 ≈ 0.004505
-# 48.90138888888889 + 0.004505 ≈ 48.9059; 48.90138888888889 - 0.004505 ≈ 48.8969
+# 48.90138888888889 + 0.004505 ≈ 48.9059; 48.818333333333335 - 0.004505 ≈ 48.8138
 # longitude 1° is approximately equal to $\Delta_{lon} =\Delta_{lat} \times \cos(lat)$
 # 111 000 * cos((48.9014 + 48.8183)/2) ≈ 111 000 * cos(48.86) ≈ 111 000 * 0.6579 ≈ 73 000
 # 500 / 73 000 ≈ 0.006849
 # 2.249722222222222 - 0.006849 ≈ 2.2429 ; 2.450555555555556 + 0.006849 ≈ 2.4574
-LAT_MAX, LAT_MIN = 48.9059, 48.8969
+LAT_MAX, LAT_MIN = 48.9059, 48.8138
 LON_MIN, LON_MAX = 2.2429, 2.4574
 
 # Calculate the center origin point of the scene
