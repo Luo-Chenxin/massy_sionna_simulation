@@ -1,12 +1,8 @@
 import sionna.rt as rt
 import pandas as pd
-from utils.geo_coords import latlonh_to_xyz_batch, deflected_azimuth
-
-DISPLAY_RADIUS=None
-RECEIVER_GROUND_HEIGHT=4
-DEFAULT_TRANSIMITTER_DBM=40
-DEFAULT_PITCH=0
-DEFAULT_ROLL=0
+from utils.geo_coords import SceneCoordinateConverter, deflected_azimuth
+from config import DISPLAY_RADIUS, RECEIVER_GROUND_HEIGHT, \
+DEFAULT_TRANSIMITTER_DBM, DEFAULT_PITCH, DEFAULT_ROLL
 
 def get_tx_name(id):
     return f'tx_{id}'
@@ -23,12 +19,16 @@ def add_tx(scene, name, position, orientation):
         display_radius=DISPLAY_RADIUS)
     scene.add(tx)
 
-def add_txs(scene, df_tx: pd.DataFrame, terrain_filename=None):
+def add_txs(
+        scene: rt.Scene, 
+        df_tx: pd.DataFrame, 
+        converter: SceneCoordinateConverter,
+        terrain_filename=None):
     """
     Batch map geographic Tx coordinates into the 3D scene and instantiate
     Transmitter objects.
     """
-    xs, ys, zs = latlonh_to_xyz_batch(
+    xs, ys, zs = converter.latlonh_to_xyz_batch(
         df_tx["Latitude"], df_tx["Longitude"], df_tx["height"], terrain_filename
     )
 
@@ -54,14 +54,18 @@ def add_rx(scene, name, position):
     rx = rt.Receiver(name=name, position=position, display_radius=DISPLAY_RADIUS)
     scene.add(rx)
 
-def add_rxs(scene, df_rx: pd.DataFrame, terrain_filename=None):
+def add_rxs(
+        scene, 
+        df_rx: pd.DataFrame, 
+        converter: SceneCoordinateConverter,
+        terrain_filename=None):
     """
     Batch map geographic Rx coordinates into the 3D scene and instantiate
     Receiver objects.
     """
     df_rx['height'] = RECEIVER_GROUND_HEIGHT
 
-    xs, ys, zs = latlonh_to_xyz_batch(
+    xs, ys, zs = converter.latlonh_to_xyz_batch(
         df_rx["Latitude"], df_rx["Longitude"], df_rx["height"], terrain_filename
     )  # All receivers are at the same height.
 

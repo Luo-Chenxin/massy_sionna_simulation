@@ -1,4 +1,6 @@
 from pathlib import Path
+from enum import Enum
+from pyproj import CRS
 
 SCENE_FILENAME = Path('data/blender/massy.xml')
 TERRAIN_FILENAME = Path('data/blender/terrain.xml')  # Optional: if it is None, we use ALT_ORIGIN to get terrain height
@@ -37,10 +39,15 @@ LAT_ORIGIN=(LAT_MAX + LAT_MIN)/2
 LON_ORIGIN=(LON_MIN + LON_MAX)/2
 # This is the altitude of center point relative to the ground in massy map
 ALT_ORIGIN=-42
+RECEIVER_GROUND_HEIGHT=4
 
 DEFAULT_AZIMUTH_MUTIPLITER=1
 DEFAULT_OFF_SET=0
+DEFAULT_PITCH=0
+DEFAULT_ROLL=0
 
+DISPLAY_RADIUS=None
+DEFAULT_TRANSIMITTER_DBM=40
 
 # Material Database (Template)
 # You can add your own materials here
@@ -62,3 +69,26 @@ MATERIAL_DATABASE = {
 
 DEFAULT_SALINITY = 0.5   # Unit: g/kg or ppt
 DEFAULT_TEMPERATURE = 20.0  # Unit: celsius
+
+class LocalCRS(Enum):
+    """
+    Spatial Reference System (SRS) macro definitions for Île-de-France (Paris) and OSM.
+    """
+    
+    # Raw OSM data storage coordinate system (Geographic: Latitude/Longitude in degrees)
+    OSM_STORAGE = "EPSG:4326"
+    
+    # Paris region planar projection (Standard global UTM Zone 31N, units in meters)
+    PARIS_UTM = "EPSG:32631"
+    
+    # Official French national projection (Lambert-93, units in meters)
+    # Strongly recommended for local data integration in France.
+    FRANCE_LAMBERT93 = "EPSG:2154"
+    
+    # Web map tile projection (Used for map rendering/displaying in Folium, Leaflet, etc.)
+    WEB_MERCATOR = "EPSG:3857"
+
+    @property
+    def crs(self) -> CRS:
+        """Dynamically retrieves the pyproj CRS object to avoid redundant initialization."""
+        return CRS.from_user_input(self.value)
