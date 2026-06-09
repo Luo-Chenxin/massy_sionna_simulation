@@ -19,8 +19,8 @@ FILTER_POSTAL_CODE = r'^75\d{3}$'
 
 # Define the geographical boundary of the target region
 # This is for massy
-# LAT_MAX, LAT_MIN = 48.7409, 48.7171
-# LON_MIN, LON_MAX = 2.2451, 2.3013
+LAT_MAX, LAT_MIN = 48.7409, 48.7171
+LON_MIN, LON_MAX = 2.2451, 2.3013
 # This is for Paris
 # I take the max and min latitude and longitude of transmitters and extend it with 500m
 # Extended Formula:
@@ -31,8 +31,8 @@ FILTER_POSTAL_CODE = r'^75\d{3}$'
 # 111 000 * cos((48.9014 + 48.8183)/2) ≈ 111 000 * cos(48.86) ≈ 111 000 * 0.6579 ≈ 73 000
 # 500 / 73 000 ≈ 0.006849
 # 2.249722222222222 - 0.006849 ≈ 2.2429 ; 2.450555555555556 + 0.006849 ≈ 2.4574
-LAT_MAX, LAT_MIN = 48.9059, 48.8138
-LON_MIN, LON_MAX = 2.2429, 2.4574
+# LAT_MAX, LAT_MIN = 48.9059, 48.8138
+# LON_MIN, LON_MAX = 2.2429, 2.4574
 
 # Calculate the center origin point of the scene
 LAT_ORIGIN=(LAT_MAX + LAT_MIN)/2

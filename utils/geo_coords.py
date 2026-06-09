@@ -3,14 +3,13 @@ import mitsuba as mi
 import drjit as dr
 import numpy as np
 import pandas as pd
-from typing import Union, Tuple, Optional
 import sionna.rt as rt
 from config import DEFAULT_AZIMUTH_MUTIPLITER, DEFAULT_OFF_SET, LocalCRS
 
 def _get_terrain_z_batch(
         xs: np.ndarray,
         ys: np.ndarray,
-        terrain_filename: str,
+        terrain_scene: rt.Scene,
     ) -> np.ndarray:
         """
         Get terrain Z for each XY point.
@@ -33,7 +32,6 @@ def _get_terrain_z_batch(
 
         rays = mi.Ray3f(ray_o, ray_d)
 
-        terrain_scene = rt.load_scene(filename=terrain_filename)
         si = terrain_scene.mi_scene.ray_intersect(rays)
 
         z_jit = si.p.z
@@ -67,11 +65,11 @@ class SceneCoordinateConverter:
 
     def latlonh_to_xyz_batch(
         self,
-        lat: Union[pd.Series, np.ndarray, float],
-        lon: Union[pd.Series, np.ndarray, float],
-        h: Union[pd.Series, np.ndarray, float],
-        terrain_filename: Optional[str] = None,
-    ) -> Tuple[Union[np.ndarray, float], Union[np.ndarray, float], Union[np.ndarray, float]]:
+        lat: pd.Series | float,
+        lon: pd.Series | float,
+        h: pd.Series | float,
+        terrain_scene: rt.Scene | None = None,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | tuple[float, float, float]:
         """
         Convert (Lat, Lon, Height) to local Cartesian coordinates (X, Y, Z).
         
@@ -92,10 +90,10 @@ class SceneCoordinateConverter:
         xs = x_objs - self._x_origin
         ys = y_objs - self._y_origin
 
-        if terrain_filename is None:
+        if terrain_scene is None:
             zs = h_arr - self.alt_origin
         else:
-            terrain_z = _get_terrain_z_batch(xs, ys, terrain_filename)
+            terrain_z = _get_terrain_z_batch(xs, ys, terrain_scene)
             zs = h_arr + terrain_z
 
         # If input is a single number, return floats
@@ -116,7 +114,7 @@ def deflected_azimuth(
     Return np.ndarray for array input or float for scalar input.
     """
     # If the input is a single float, perform scalar math and return a float
-    if isinstance(azimuth, (float, int)):
+    if isinstance(azimuth, float):
         return azimuth * multiplier + offset
 
     # If the input is a Pandas Series (or any array-like), convert it to

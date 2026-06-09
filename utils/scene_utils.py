@@ -23,13 +23,13 @@ def add_txs(
         scene: rt.Scene, 
         df_tx: pd.DataFrame, 
         converter: SceneCoordinateConverter,
-        terrain_filename=None):
+        terrain_scene: rt.Scene | None = None):
     """
     Batch map geographic Tx coordinates into the 3D scene and instantiate
     Transmitter objects.
     """
     xs, ys, zs = converter.latlonh_to_xyz_batch(
-        df_tx["Latitude"], df_tx["Longitude"], df_tx["height"], terrain_filename
+        df_tx["Latitude"], df_tx["Longitude"], df_tx["height"], terrain_scene
     )
 
     azimuths = deflected_azimuth(df_tx["Azimut"])
@@ -58,7 +58,7 @@ def add_rxs(
         scene, 
         df_rx: pd.DataFrame, 
         converter: SceneCoordinateConverter,
-        terrain_filename=None):
+        terrain_scene: rt.Scene | None = None):
     """
     Batch map geographic Rx coordinates into the 3D scene and instantiate
     Receiver objects.
@@ -66,7 +66,7 @@ def add_rxs(
     df_rx['height'] = RECEIVER_GROUND_HEIGHT
 
     xs, ys, zs = converter.latlonh_to_xyz_batch(
-        df_rx["Latitude"], df_rx["Longitude"], df_rx["height"], terrain_filename
+        df_rx["Latitude"], df_rx["Longitude"], df_rx["height"], terrain_scene
     )  # All receivers are at the same height.
 
     for x, y, z, row in zip(xs, ys, zs, df_rx.itertuples(index=False)):
