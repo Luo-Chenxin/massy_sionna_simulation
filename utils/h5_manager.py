@@ -38,10 +38,10 @@ class H5Manager:
             f.create_dataset(name, data=data, dtype=dtype, compression="gzip")
             
         # Check and update the simulation status automatically
-        H5Manager.update_simulation_status(file_path)
+        H5Manager._update_simulation_status(file_path)
 
     @staticmethod
-    def update_simulation_status(file_path):
+    def _update_simulation_status(file_path):
         """
         Check if all 3 datasets exist. If yes, set has_simulation to True.
         """

@@ -217,10 +217,7 @@ class RadioMapGenerator:
         rss_tensor = rm.rss.numpy()    # shape: (N_tx, n_cols, n_rows)
 
         # Sum contributions from all transmitters
-        rss_sum = rss_tensor.sum(axis=0)   # shape: (n_cols, n_rows)
-
-        # Transpose to obtain [row, column] layout
-        rss_map = rss_sum.transpose()      # shape: (n_rows, n_cols)
+        rss_map = rss_tensor.sum(axis=0)   # shape: (n_cols, n_rows) 
 
         # Expected number of rows / columns
         expected_cells = int(round(map_size_m / resolution_m))

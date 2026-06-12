@@ -97,10 +97,10 @@ class TransmitterMapper:
         
         # Filter using BlockMeta's lat/lon bounds
         mask = (
-            (df['Latitude'] >= self.block_meta.lat_min) & 
-            (df['Latitude'] <= self.block_meta.lat_max) &
-            (df['Longitude'] >= self.block_meta.lon_min) & 
-            (df['Longitude'] <= self.block_meta.lon_max)
+            (df['Latitude'] >= self.block_meta.lat_min_core) & 
+            (df['Latitude'] <= self.block_meta.lat_max_core) &
+            (df['Longitude'] >= self.block_meta.lon_min_core) & 
+            (df['Longitude'] <= self.block_meta.lon_max_core)
         )
         
         self.filtered_data = df[mask].copy()
