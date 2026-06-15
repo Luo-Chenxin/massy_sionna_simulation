@@ -74,7 +74,7 @@ class RadioMapGenerator:
             transmitter falls inside the core area.
         """
         # Filter transmitters inside the block core
-        df_tx_core = self._filter_tx_in_core(block_meta, csv_path)
+        df_tx_core = self._filter_tx_in_block(block_meta, csv_path)
         if df_tx_core is None:
             return None
 
@@ -92,7 +92,7 @@ class RadioMapGenerator:
 
         return rss_map
 
-    def _filter_tx_in_core(
+    def _filter_tx_in_block(
         self, block_meta: BlockMeta, csv_path: Path
     ) -> pd.DataFrame | None:
         """
@@ -101,7 +101,7 @@ class RadioMapGenerator:
         Parameters
         ----------
         block_meta : BlockMeta
-            Block metadata with core latitude/longitude bounds.
+            Block metadata
         csv_path : Path
             Path to the transmitter CSV file.
 
@@ -116,10 +116,10 @@ class RadioMapGenerator:
         tx_lat = df_tx["Latitude"].to_numpy()
 
         in_core = (
-            (tx_lon >= block_meta.lon_min_core) &
-            (tx_lon <= block_meta.lon_max_core) &
-            (tx_lat >= block_meta.lat_min_core) &
-            (tx_lat <= block_meta.lat_max_core)
+            (tx_lon >= block_meta.lon_min) &
+            (tx_lon <= block_meta.lon_max) &
+            (tx_lat >= block_meta.lat_min) &
+            (tx_lat <= block_meta.lat_max)
         )
         df_core = df_tx.loc[in_core].copy()
 
