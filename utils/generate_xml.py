@@ -15,7 +15,7 @@ class SionnaXMLGenerator:
     MESH_MATERIALS: Dict[str, Dict[str, str]] = {
         "terrain.ply": {
             "material_id": "mat-itu_medium_dry_ground",
-            "material_type": "twosided",
+            "material_type": "diffuse",
             "color": "0.750000 0.650000 0.450000",  # Sandy brown for terrain
             "face_normals": "true"
         },
