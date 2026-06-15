@@ -89,9 +89,7 @@ class SionnaXMLGenerator:
             Parent XML element to append to
         """
         integrator = ET.SubElement(parent, "integrator", {
-            "type": "path",
-            "id": "elm__0",
-            "name": "elm__0"
+            "type": "path"
         })
         ET.SubElement(integrator, "integer", {
             "name": "max_depth",
@@ -101,6 +99,8 @@ class SionnaXMLGenerator:
     def _create_materials(self, parent: ET.Element) -> None:
         """
         Create material definitions for all mesh types.
+        Each diffuse material is wrapped in a twosided BSDF
+        for correct ray tracing behavior in Sionna RT.
         
         Parameters
         ----------
@@ -108,12 +108,16 @@ class SionnaXMLGenerator:
             Parent XML element to append to
         """
         for _, material_info in self.MESH_MATERIALS.items():
-            bsdf = ET.SubElement(parent, "bsdf", {
-                "type": material_info["material_type"],
-                "id": material_info["material_id"],
-                "name": material_info["material_id"]
+            # Outer twosided wrapper
+            bsdf_twosided = ET.SubElement(parent, "bsdf", {
+                "type": "twosided",
+                "id": material_info["material_id"]
             })
-            ET.SubElement(bsdf, "rgb", {
+            # Inner diffuse material
+            bsdf_diffuse = ET.SubElement(bsdf_twosided, "bsdf", {
+                "type": material_info["material_type"]
+            })
+            ET.SubElement(bsdf_diffuse, "rgb", {
                 "value": material_info["color"],
                 "name": "reflectance"
             })
@@ -129,8 +133,7 @@ class SionnaXMLGenerator:
         """
         emitter = ET.SubElement(parent, "emitter", {
             "type": "constant",
-            "id": "World",
-            "name": "World"
+            "id": "World"
         })
         ET.SubElement(emitter, "rgb", {
             "value": "1.000000 1.000000 1.000000",
@@ -162,8 +165,7 @@ class SionnaXMLGenerator:
             mesh_name = mesh_filename.replace(".ply", "")
             shape = ET.SubElement(parent, "shape", {
                 "type": "ply",
-                "id": f"mesh-{mesh_name}",
-                "name": f"mesh-{mesh_name}"
+                "id": f"mesh-{mesh_name}"
             })
             
             # Add filename reference
@@ -201,21 +203,10 @@ class SionnaXMLGenerator:
         # Create root element
         root = ET.Element("scene", {"version": "2.1.0"})
         
-        # Add comments for structure
-        root.append(ET.Comment(" Defaults, these can be set via the command line: -Darg=value "))
-        root.append(ET.Comment(" Camera and Rendering Parameters "))
         self._create_integrator(root)
-        
-        root.append(ET.Comment(" Materials "))
         self._create_materials(root)
-        
-        root.append(ET.Comment(" Emitters "))
         self._create_emitter(root)
-        
-        root.append(ET.Comment(" Shapes "))
         self._create_shapes(root)
-        
-        root.append(ET.Comment(" Volumes "))
         
         return root
     
