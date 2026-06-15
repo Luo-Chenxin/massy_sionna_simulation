@@ -522,7 +522,6 @@ def generate_flat_terrain_ply(
     y_max: int, 
     resolution: float,
     height: float,
-    expand_m: int
 ) -> Path:
     """
     Generate a flat terrain mesh as binary PLY file covering a given Lambert93 area.
@@ -545,8 +544,6 @@ def generate_flat_terrain_ply(
         Grid cell size in meters
     height : float
         Constant Z height for all terrain vertices
-    expand_m : int
-        The distance (in meters) that extends outward.
     Returns
     -------
     Path
@@ -559,12 +556,6 @@ def generate_flat_terrain_ply(
     """
     if resolution <= 0:
         raise ValueError(f"Resolution must be positive, got {resolution}")
-    
-    # Extended Boundary
-    x_min = x_min - expand_m
-    x_max = x_max + expand_m
-    y_min = y_min - expand_m
-    y_max = y_max + expand_m
     
     # Calculate center point for offset
     offset_x = (x_min + x_max) / 2.0

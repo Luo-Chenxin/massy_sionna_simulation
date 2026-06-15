@@ -15,7 +15,7 @@ class BuildingRasterizer:
     def __init__(
             self, 
             gdf: gpd.GeoDataFrame, 
-            block_meta:BlockMeta, 
+            block_meta: BlockMeta, 
             resolution_m: float) -> None:
         """
         Initialize the rasterizer.

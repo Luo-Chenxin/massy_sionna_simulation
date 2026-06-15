@@ -22,7 +22,7 @@ class RadioMapGenerator:
         linear RSS contributions from all transmitters.
     """
 
-    def __init__(self, converter: SceneCoordinateConverter):
+    def __init__(self, converter: SceneCoordinateConverter, block_meta: BlockMeta, resolution_m: float):
         """
         Parameters
         ----------
@@ -31,17 +31,21 @@ class RadioMapGenerator:
             coordinate system. The origin of this converter should be set to the
             center of the block's core area so that (0,0,0) in Sionna coincides
             with that center.
+        block_meta : BlockMeta
+        resolution_m : float
+            Cell size in meters.
         """
         self.converter = converter
+        self.block_meta = block_meta
+        self.resolution_m = resolution_m
+        self._setup_matrix_bounds()
 
     def generate(
         self,
         xml_path: Path,
         csv_path: Path,
-        block_meta: BlockMeta,
         tx_array: rt.PlanarArray,
         frequency: float,
-        resolution_m: float
     ) -> np.ndarray | None:
         """
         Generate a summed RSS map for the given block.
@@ -54,16 +58,10 @@ class RadioMapGenerator:
         csv_path : Path
             CSV file with transmitter columns: ``Latitude``, ``Longitude``,
             ``height``, ``Azimut``.
-        block_meta : BlockMeta
-            Block metadata containing both the extended bounds (with overlap) and
-            the core bounds (without overlap). Only transmitters inside the core
-            area are used.
         tx_array : rt.PlanarArray
             Antenna array to be used for all transmitters.
         frequency : float
             Carrier frequency in Hz.
-        resolution_m : float
-            Cell size in meters.
 
         Returns
         -------
@@ -74,7 +72,7 @@ class RadioMapGenerator:
             transmitter falls inside the core area.
         """
         # Filter transmitters inside the block core
-        df_tx_core = self._filter_tx_in_block(block_meta, csv_path)
+        df_tx_core = self._filter_tx_in_block(csv_path)
         if df_tx_core is None:
             return None
 
@@ -88,20 +86,18 @@ class RadioMapGenerator:
         add_txs(scene, df_tx_core, self.converter, terrain_scene=None)
 
         # Compute radio map and sum RSS
-        rss_map = self._compute_radiomap(scene, block_meta, resolution_m)
+        rss_map = self._compute_radiomap(scene)
 
         return rss_map
 
     def _filter_tx_in_block(
-        self, block_meta: BlockMeta, csv_path: Path
+        self, csv_path: Path
     ) -> pd.DataFrame | None:
         """
         Load CSV and keep only transmitters inside the block's core area.
 
         Parameters
         ----------
-        block_meta : BlockMeta
-            Block metadata
         csv_path : Path
             Path to the transmitter CSV file.
 
@@ -116,10 +112,10 @@ class RadioMapGenerator:
         tx_lat = df_tx["Latitude"].to_numpy()
 
         in_core = (
-            (tx_lon >= block_meta.lon_min) &
-            (tx_lon <= block_meta.lon_max) &
-            (tx_lat >= block_meta.lat_min) &
-            (tx_lat <= block_meta.lat_max)
+            (tx_lon >= self.block_meta.lon_min) &
+            (tx_lon <= self.block_meta.lon_max) &
+            (tx_lat >= self.block_meta.lat_min) &
+            (tx_lat <= self.block_meta.lat_max)
         )
         df_core = df_tx.loc[in_core].copy()
 
@@ -174,12 +170,44 @@ class RadioMapGenerator:
         # Clean up materials that were loaded with the scene but are not needed
         scene.remove("wet_ground")
         scene.remove("chipboard")
+    
+    def _setup_matrix_bounds(self):
+        """
+        Calculate matrix boundaries from BlockMeta in projected coordinates.
+        BlockMeta already has x_start, x_end, y_start, y_end in meters.
+        """
+        # Use BlockMeta's meter coordinates directly
+        self.x_min = self.block_meta.x_start
+        self.x_max = self.block_meta.x_end
+        self.y_min = self.block_meta.y_start
+        self.y_max = self.block_meta.y_end
+
+        self.overlap_m =self.block_meta.overlap_m
+        
+        # Calculate matrix dimensions
+        total_width = self.x_max - self.x_min
+        total_height = self.y_max - self.y_min
+        
+        self.n_cols = int(np.ceil(total_width / self.resolution_m))
+        self.n_rows = int(np.ceil(total_height / self.resolution_m))
+        
+        # Pre-calculate crop indices for overlap removal
+        if self.overlap_m > 0:
+            cells_to_crop = int(np.ceil(self.overlap_m / self.resolution_m))
+            # Check if cropping is possible
+            if cells_to_crop == 0:
+                self.crop_slice = np.s_[:, :self.n_rows, :self.n_cols]
+            elif cells_to_crop * 2 < self.n_rows and cells_to_crop * 2 < self.n_cols:
+                self.crop_slice = np.s_[:, cells_to_crop:-cells_to_crop, cells_to_crop:-cells_to_crop]
+            else:
+                # Overlap is too large relative to matrix size
+                self.crop_slice = np.s_[:, :self.n_rows, :self.n_cols]
+        else:
+            self.crop_slice = np.s_[:, :self.n_rows, :self.n_cols]
 
     def _compute_radiomap(
         self,
         scene: rt.Scene,
-        block_meta: BlockMeta,
-        resolution_m: float
     ) -> np.ndarray:
         """
         Compute a radio map centered at (0,0,0) and sum the RSS of all TXs.
@@ -188,10 +216,6 @@ class RadioMapGenerator:
         ----------
         scene : rt.Scene
             The Sionna scene with transmitters already added.
-        block_meta : BlockMeta
-            Block metadata used to determine the map size.
-        resolution_m : float
-            Cell size in meters.
 
         Returns
         -------
@@ -201,30 +225,26 @@ class RadioMapGenerator:
         solver = rt.RadioMapSolver()
 
         # Map extent in meters (square region)
-        map_size_m = float(block_meta.block_size_m)
+        x_size_m = self.block_meta.x_end - self.block_meta.x_start
+        y_size_m = self.block_meta.y_end - self.block_meta.y_start
 
         rm = solver(
             scene,
             max_depth=5,
             samples_per_tx=int(1e7),
-            cell_size=mi.Point2f(resolution_m, resolution_m),
+            cell_size=mi.Point2f(self.resolution_m, self.resolution_m),
             center=mi.Point3f(0.0, 0.0, 0.0),
-            size=mi.Point2f(map_size_m, map_size_m),
+            size=mi.Point2f(x_size_m, y_size_m),
             orientation=mi.Point3f(0, 0, 0)
         )
 
         # rm.rss has shape [num_tx, num_cols, num_rows]
         rss_tensor = rm.rss.numpy()    # shape: (N_tx, n_cols, n_rows)
 
-        # Sum contributions from all transmitters
-        rss_map = rss_tensor.sum(axis=0)   # shape: (n_cols, n_rows) 
+        # Remove overlop
+        rss_tensor = rss_tensor[self.crop_slice]    # shape: (N, n_rows_cropped, n_cols_cropped) 
 
-        # Expected number of rows / columns
-        expected_cells = int(round(map_size_m / resolution_m))
-        if rss_map.shape != (expected_cells, expected_cells):
-            raise RuntimeError(
-                f"Expected RSS map shape ({expected_cells}, {expected_cells}), "
-                f"got {rss_map.shape}"
-            )
+        # Sum contributions from all transmitters
+        rss_map = rss_tensor.sum(axis=0)   # shape: (n_rows_cropped, n_cols_cropped) 
 
         return rss_map.astype(np.float32)
