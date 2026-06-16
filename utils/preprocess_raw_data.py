@@ -117,6 +117,10 @@ def preprocess_antenna_data_by_frequency_and_postal(
     Secondary table renames `Numéro du support` to `Numéro de support` and left-joins on that key.
     The returned table preserves all main rows and includes columns:
     [ID, Numéro de support, Latitude, Longitude, height, Azimut, frequency, Code postal]
+
+    Deduplication rule: 
+    For rows with identical values in ['Numéro de support', 'Latitude', 'Longitude', 
+    'frequency', 'Code postal'], only the first occurrence is kept.
     """
 
     # Load main antenna table
@@ -137,15 +141,11 @@ def preprocess_antenna_data_by_frequency_and_postal(
     )
     secondary_df.columns = secondary_df.columns.str.strip()
 
-    # Deduplicate main table on Numéro de support
-    main_df = main_df.drop_duplicates(subset=['Numéro de support']).copy()
-
     # Rename main table fields
     main_df = main_df.rename(columns={'Hauteur / sol': 'height', 'Système': 'frequency'})
 
     # Rename secondary key and deduplicate coordinates in secondary table
     secondary_df = secondary_df.rename(columns={'Numéro du support': 'Numéro de support'})
-    secondary_df = secondary_df.drop_duplicates(subset=['Numéro de support']).copy()
 
     # Left join secondary coordinates and postal code onto main table
     merged_df = pd.merge(
@@ -160,6 +160,11 @@ def preprocess_antenna_data_by_frequency_and_postal(
     freq_extracted = freq_clean.str.extract(r"(\d+)\s*$", expand=False).fillna("unknown")
     merged_df = merged_df[freq_extracted == str(frequency)].copy()
     merged_df = merged_df[merged_df['Code postal'].astype(str).str.match(postal_code)].copy()
+
+    merged_df = merged_df.drop_duplicates(
+        subset=['Numéro de support', 'Latitude', 'Longitude', 'frequency', 'Code postal'],
+        keep='first'
+    )
 
     # Keep only the requested output columns and preserve order
     output_cols = [
