@@ -10,6 +10,19 @@ import time
 import json
 
 # =============================================================================
+# Path Configuration - Centralized directory management
+# =============================================================================
+
+# Base directory for all OSM cache data
+CACHE_BASE_DIR = Path("data/osm_cache")
+
+# Directory for chunk GeoPackage files
+CHUNKS_DIR = CACHE_BASE_DIR / "chunks"
+
+# Directory for metadata files (JSON)
+METADATA_DIR = CACHE_BASE_DIR / "metadata"
+
+# =============================================================================
 # OSM Feature Tags for ox.features_from_bbox
 # These tags are organized by feature categories and combined views.
 # =============================================================================
@@ -100,8 +113,10 @@ class OSMFetcher:
         # Configure osmnx cache to save time and network data
         ox.settings.use_cache = True
         ox.settings.log_console = False
-        # ox.settings.requests_timeout = 180
-        # ox.settings.overpass_url = 'https://overpass.private.coffee/api/interpreter'
+        
+        # Make sure cache directories exist
+        CHUNKS_DIR.mkdir(parents=True, exist_ok=True)
+        METADATA_DIR.mkdir(parents=True, exist_ok=True)
         
         # Initialize internal storage
         self._raw_gdf = gpd.GeoDataFrame()
@@ -126,7 +141,7 @@ class OSMFetcher:
     ) -> None:
         """
         Load data from a local GeoPackage file, or download and save if not exists.
-        For large areas, supports loading from chunk files in a subdirectory.
+        For large areas, supports loading from chunk files.
         
         Parameters
         ----------
@@ -136,15 +151,15 @@ class OSMFetcher:
             OSM tags dictionary to query features.
         filepath
             Path to the local GeoPackage file. If data is split into chunks,
-            they will be stored in a subdirectory named '{filepath.stem}_chunks'.
+            they will be stored in CHUNKS_DIR with a unique prefix.
         """
         import os
-        import shutil
+        import hashlib
         
+        # Check if single file cache exists
         if os.path.exists(filepath):
             print(f"Loading OSM data from local file: {filepath}")
             try:
-                # Load the entire file (spatial filtering can be applied later)
                 self._raw_gdf = gpd.read_file(filepath)
                 print(f"Successfully loaded {len(self._raw_gdf)} features from local file.")
                 return
@@ -152,47 +167,37 @@ class OSMFetcher:
                 print(f"Error loading local file: {e}")
                 print("Falling back to online fetch...")
         
-        # Check for chunk files (for large areas)
-        chunks_dir = filepath.parent / f"{filepath.stem}_chunks"
-        if chunks_dir.exists():
-            chunk_files = sorted(chunks_dir.glob("*.gpkg"))
-            if chunk_files:
-                print(f"Found {len(chunk_files)} cached chunks in {chunks_dir}")
-                print("Using lazy loading mode - chunks will be loaded on demand.")
-                self._chunk_files = chunk_files
-                self._load_chunk_metadata()
-                return
+        # Check for chunk files using unique cache prefix
+        cache_key = hashlib.md5(f"{bbox}{sorted(tags.keys())}".encode()).hexdigest()[:8]
+        chunk_pattern = f"{cache_key}_chunk_*_*.gpkg"
+        chunk_files = sorted(CHUNKS_DIR.glob(chunk_pattern))
+        
+        if chunk_files:
+            print(f"Found {len(chunk_files)} cached chunks in {CHUNKS_DIR}")
+            print("Using lazy loading mode - chunks will be loaded on demand.")
+            self._chunk_files = chunk_files
+            self._load_chunk_metadata(cache_key)
+            return
         
         # Download from OSM
         print(f"Local file not found: {filepath}")
         print("Downloading from OSM...")
         self._fetch_all(bbox, tags)
-        
-        # Save downloaded data
-        if not self._raw_gdf.empty:
-            print(f"Saving downloaded data to: {filepath}")
-            self._raw_gdf.to_file(filepath, driver="GPKG")
-        elif self._chunk_files:
-            # Move chunk files to permanent cache directory
-            print(f"Saving chunk files to: {chunks_dir}")
-            chunks_dir.mkdir(exist_ok=True)
-            new_chunk_files = []
-            for chunk_file in self._chunk_files:
-                new_path = chunks_dir / chunk_file.name
-                shutil.move(str(chunk_file), str(new_path))
-                new_chunk_files.append(new_path)
-            self._chunk_files = new_chunk_files
-            self._save_chunk_metadata()
 
-    def _load_chunk_metadata(self) -> None:
+    def _load_chunk_metadata(self, cache_key: str) -> None:
         """
         Load bounding box metadata for chunk files from JSON file.
         Falls back to reading from files if metadata file doesn't exist.
+        
+        Parameters
+        ----------
+        cache_key
+            Unique key used to identify this cache session.
         """
         if not self._chunk_files:
             return
         
-        metadata_file = self._chunk_files[0].parent / "chunks_metadata.json"
+        metadata_file = METADATA_DIR / f"{cache_key}_chunks_metadata.json"
         if metadata_file.exists():
             try:
                 with open(metadata_file, 'r') as f:
@@ -203,11 +208,16 @@ class OSMFetcher:
                 pass
         
         # If metadata file doesn't exist, read from chunk files
-        self._save_chunk_metadata()
+        self._save_chunk_metadata(cache_key)
 
-    def _save_chunk_metadata(self) -> None:
+    def _save_chunk_metadata(self, cache_key: str) -> None:
         """
         Save bounding box metadata for chunk files to JSON for faster queries.
+        
+        Parameters
+        ----------
+        cache_key
+            Unique key used to identify this cache session.
         """
         if not self._chunk_files:
             return
@@ -223,7 +233,7 @@ class OSMFetcher:
                 continue
         
         if metadata:
-            metadata_file = self._chunk_files[0].parent / "chunks_metadata.json"
+            metadata_file = METADATA_DIR / f"{cache_key}_chunks_metadata.json"
             with open(metadata_file, 'w') as f:
                 json.dump(metadata, f)
             self._chunk_metadata = metadata
@@ -237,7 +247,6 @@ class OSMFetcher:
         """
         Fetch base OSM data using a bounding box and store it internally.
         Automatically splits large areas into smaller chunks to avoid memory issues.
-        Supports resume: saves intermediate chunks to disk to avoid re-downloading.
         
         Parameters
         ----------
@@ -247,6 +256,8 @@ class OSMFetcher:
         tags
             OSM tags dictionary to query features.
         """
+        import hashlib
+        
         print(f"Fetching OSM data for bbox: {bbox}")
 
         lat_span = bbox[3] - bbox[1]
@@ -261,11 +272,6 @@ class OSMFetcher:
             
             print(f"Large area ({area_km2:.1f} km²), splitting into {n_splits}x{n_splits} chunks...")
             
-            # Create temp directory for chunk cache
-            import hashlib
-            cache_dir = Path('data') / "osm_chunks"
-            cache_dir.mkdir(exist_ok=True)
-            
             # Generate unique cache prefix based on bbox and tags
             cache_key = hashlib.md5(f"{bbox}{sorted(tags.keys())}".encode()).hexdigest()[:8]
             
@@ -273,7 +279,7 @@ class OSMFetcher:
             for i in range(n_splits):
                 for j in range(n_splits):
                     sub_bbox = (lon_edges[j], lat_edges[i], lon_edges[j+1], lat_edges[i+1])
-                    chunk_file = cache_dir / f"{cache_key}_chunk_{i}_{j}.gpkg"
+                    chunk_file = CHUNKS_DIR / f"{cache_key}_chunk_{i}_{j}.gpkg"
                     
                     # Check if chunk already downloaded
                     if chunk_file.exists():
@@ -291,7 +297,7 @@ class OSMFetcher:
                             if existing_cols:
                                 gdf_chunk = gdf_chunk.drop(columns=existing_cols)
                             
-                            # Save chunk immediately
+                            # Save chunk to permanent cache
                             gdf_chunk.to_file(chunk_file, driver="GPKG")
                             chunk_files.append(chunk_file)
                             print(f"    -> {len(gdf_chunk)} features (saved to cache)")
@@ -303,14 +309,14 @@ class OSMFetcher:
                         time.sleep(2)
                     except Exception as e:
                         print(f"    -> Failed: {e}")
-                        # Don't create cache file on failure, so it retries next time
+                        # Remove incomplete file on failure so it retries next time
                         if chunk_file.exists():
                             chunk_file.unlink()
                             print(f"    -> Removed incomplete cache file")
             
             if chunk_files:
                 self._chunk_files = chunk_files
-                self._save_chunk_metadata()
+                self._save_chunk_metadata(cache_key)
                 print(f"Successfully processed {len(chunk_files)} chunks (lazy loading mode).")
             else:
                 print("Warning: No data found for the given box and tags.")
@@ -341,6 +347,11 @@ class OSMFetcher:
         Filter the pre-fetched GeoDataFrame based on tags and/or a sub-bounding box.
         For chunked data (large areas), only loads relevant chunks to save memory.
         
+        Lazy loading explanation:
+        When multiple .gpkg chunk files exist, they are NOT loaded into memory
+        until this method is called. At that point, only the chunks that intersect
+        with sub_bbox are loaded. This avoids loading the entire dataset at once.
+        
         Parameters
         ----------
         filter_tags
@@ -356,14 +367,15 @@ class OSMFetcher:
         gpd.GeoDataFrame
             A filtered copy of the GeoDataFrame.
         """
-        # If we have the full dataset loaded, use it directly
+        # If we have the full dataset loaded in memory, use it directly
         if not self._raw_gdf.empty:
             return self._filter_gdf(self._raw_gdf, filter_tags, sub_bbox)
         
         # If using chunked data, load only relevant chunks
         if self._chunk_files:
             if sub_bbox is not None:
-                # Find and load only chunks that intersect with sub_bbox
+                # Find which chunks overlap with the query bbox
+                # Only these chunks will be read from disk
                 relevant_chunks = self._find_relevant_chunks(sub_bbox)
                 if relevant_chunks:
                     print(f"Loading {len(relevant_chunks)} relevant chunks out of {len(self._chunk_files)}")
@@ -377,8 +389,8 @@ class OSMFetcher:
                     print("No relevant chunks found for the given sub_bbox.")
                     return gpd.GeoDataFrame()
             else:
-                # No spatial filter, but we need to apply tag filters
-                # Load all chunks (consider adding tag-based chunk filtering in the future)
+                # No spatial filter, but need to apply tag filters
+                # Must load all chunks since we don't know which ones have matching tags
                 print(f"Loading all {len(self._chunk_files)} chunks for tag filtering")
                 combined_gdf = gpd.GeoDataFrame()
                 for chunk_file in self._chunk_files:
@@ -396,7 +408,8 @@ class OSMFetcher:
     ) -> List[Path]:
         """
         Find chunk files that intersect with the given bounding box.
-        Uses cached metadata if available, otherwise reads from files.
+        Uses cached metadata (JSON) if available, otherwise reads from files.
+        Only reads first 10 rows of each chunk file when metadata is missing.
         
         Parameters
         ----------
@@ -414,7 +427,7 @@ class OSMFetcher:
         relevant_chunks = []
         
         for chunk_file in self._chunk_files:
-            # Try to use cached metadata first
+            # Try to use cached metadata first (fast, no file read needed)
             chunk_key = str(chunk_file)
             if chunk_key in self._chunk_metadata:
                 chunk_bounds = self._chunk_metadata[chunk_key]
@@ -422,7 +435,8 @@ class OSMFetcher:
                 if query_box.intersects(chunk_box):
                     relevant_chunks.append(chunk_file)
             else:
-                # Fall back to reading from file
+                # Fall back to reading bounds from file (slower)
+                # Only reads first 10 rows to get the extent
                 try:
                     chunk_gdf = gpd.read_file(chunk_file, rows=10)
                     if not chunk_gdf.empty:

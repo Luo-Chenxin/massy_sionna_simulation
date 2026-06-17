@@ -50,6 +50,18 @@ class H5Manager:
         H5Manager._update_simulation_status(file_path)
 
     @staticmethod
+    def clean_dataset(file_path, name: str):
+        """
+        clean a dataset by its name, then update file status.
+        """
+        with h5py.File(file_path, "a") as f:
+            if name in f:
+                del f[name]
+            
+        # Check and update the simulation status automatically
+        H5Manager._update_simulation_status(file_path)
+
+    @staticmethod
     def _update_simulation_status(file_path):
         """
         Check if all 3 datasets exist. If yes, set has_simulation to True.
