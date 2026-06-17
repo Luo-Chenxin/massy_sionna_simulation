@@ -7,6 +7,7 @@ from shapely.geometry import box
 from pathlib import Path
 import numpy as np
 import time 
+import json
 
 # =============================================================================
 # OSM Feature Tags for ox.features_from_bbox
@@ -93,6 +94,8 @@ class OSMFetcher:
             Optional path to a local GeoPackage file. If provided, data will be
             loaded from this file instead of downloading from OSM. If the file
             does not exist, data will be downloaded and saved to this path.
+            For large areas, data may be stored as multiple chunk files in a
+            subdirectory.
         """
         # Configure osmnx cache to save time and network data
         ox.settings.use_cache = True
@@ -102,9 +105,12 @@ class OSMFetcher:
         
         # Initialize internal storage
         self._raw_gdf = gpd.GeoDataFrame()
+        self._chunk_files: List[Path] = []  # For large areas, store chunk file paths
+        self._chunk_metadata: Dict[str, tuple] = {}  # Bounding boxes for each chunk
         
         # Store the full extent for reference
         self._full_bbox = bbox
+        self._tags = tags
         
         # Automatically fetch or load data during initialization
         if cache_filepath is not None:
@@ -120,6 +126,7 @@ class OSMFetcher:
     ) -> None:
         """
         Load data from a local GeoPackage file, or download and save if not exists.
+        For large areas, supports loading from chunk files in a subdirectory.
         
         Parameters
         ----------
@@ -128,9 +135,11 @@ class OSMFetcher:
         tags
             OSM tags dictionary to query features.
         filepath
-            Path to the local GeoPackage file.
+            Path to the local GeoPackage file. If data is split into chunks,
+            they will be stored in a subdirectory named '{filepath.stem}_chunks'.
         """
         import os
+        import shutil
         
         if os.path.exists(filepath):
             print(f"Loading OSM data from local file: {filepath}")
@@ -138,19 +147,87 @@ class OSMFetcher:
                 # Load the entire file (spatial filtering can be applied later)
                 self._raw_gdf = gpd.read_file(filepath)
                 print(f"Successfully loaded {len(self._raw_gdf)} features from local file.")
+                return
             except Exception as e:
                 print(f"Error loading local file: {e}")
                 print("Falling back to online fetch...")
-                self._fetch_all(bbox, tags)
-                if not self._raw_gdf.empty:
-                    self._raw_gdf.to_file(filepath, driver="GPKG")
-        else:
-            print(f"Local file not found: {filepath}")
-            print("Downloading from OSM...")
-            self._fetch_all(bbox, tags)
-            if not self._raw_gdf.empty:
-                print(f"Saving downloaded data to: {filepath}")
-                self._raw_gdf.to_file(filepath, driver="GPKG")
+        
+        # Check for chunk files (for large areas)
+        chunks_dir = filepath.parent / f"{filepath.stem}_chunks"
+        if chunks_dir.exists():
+            chunk_files = sorted(chunks_dir.glob("*.gpkg"))
+            if chunk_files:
+                print(f"Found {len(chunk_files)} cached chunks in {chunks_dir}")
+                print("Using lazy loading mode - chunks will be loaded on demand.")
+                self._chunk_files = chunk_files
+                self._load_chunk_metadata()
+                return
+        
+        # Download from OSM
+        print(f"Local file not found: {filepath}")
+        print("Downloading from OSM...")
+        self._fetch_all(bbox, tags)
+        
+        # Save downloaded data
+        if not self._raw_gdf.empty:
+            print(f"Saving downloaded data to: {filepath}")
+            self._raw_gdf.to_file(filepath, driver="GPKG")
+        elif self._chunk_files:
+            # Move chunk files to permanent cache directory
+            print(f"Saving chunk files to: {chunks_dir}")
+            chunks_dir.mkdir(exist_ok=True)
+            new_chunk_files = []
+            for chunk_file in self._chunk_files:
+                new_path = chunks_dir / chunk_file.name
+                shutil.move(str(chunk_file), str(new_path))
+                new_chunk_files.append(new_path)
+            self._chunk_files = new_chunk_files
+            self._save_chunk_metadata()
+
+    def _load_chunk_metadata(self) -> None:
+        """
+        Load bounding box metadata for chunk files from JSON file.
+        Falls back to reading from files if metadata file doesn't exist.
+        """
+        if not self._chunk_files:
+            return
+        
+        metadata_file = self._chunk_files[0].parent / "chunks_metadata.json"
+        if metadata_file.exists():
+            try:
+                with open(metadata_file, 'r') as f:
+                    self._chunk_metadata = json.load(f)
+                print(f"Loaded metadata for {len(self._chunk_metadata)} chunks")
+                return
+            except Exception:
+                pass
+        
+        # If metadata file doesn't exist, read from chunk files
+        self._save_chunk_metadata()
+
+    def _save_chunk_metadata(self) -> None:
+        """
+        Save bounding box metadata for chunk files to JSON for faster queries.
+        """
+        if not self._chunk_files:
+            return
+        
+        metadata = {}
+        for chunk_file in self._chunk_files:
+            try:
+                # Read just the bounds without loading all data
+                import fiona
+                with fiona.open(chunk_file) as src:
+                    metadata[str(chunk_file)] = src.bounds
+            except Exception:
+                continue
+        
+        if metadata:
+            metadata_file = self._chunk_files[0].parent / "chunks_metadata.json"
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f)
+            self._chunk_metadata = metadata
+            print(f"Saved metadata for {len(metadata)} chunks")
 
     def _fetch_all(
         self,
@@ -192,7 +269,7 @@ class OSMFetcher:
             # Generate unique cache prefix based on bbox and tags
             cache_key = hashlib.md5(f"{bbox}{sorted(tags.keys())}".encode()).hexdigest()[:8]
             
-            tmp_files = []
+            chunk_files = []
             for i in range(n_splits):
                 for j in range(n_splits):
                     sub_bbox = (lon_edges[j], lat_edges[i], lon_edges[j+1], lat_edges[i+1])
@@ -200,29 +277,23 @@ class OSMFetcher:
                     
                     # Check if chunk already downloaded
                     if chunk_file.exists():
-                        try:
-                            test_read = gpd.read_file(chunk_file)
-                            if len(test_read) >= 0:
-                                print(f"  Chunk ({i},{j}): loading from cache {chunk_file.name}")
-                                tmp_files.append(chunk_file)
-                                del test_read
-                                continue
-                            else:
-                                print(f"  Chunk ({i},{j}): cache file is empty or corrupted, re-downloading...")
-                                chunk_file.unlink()
-                        except Exception as read_error:
-                            print(f"  Chunk ({i},{j}): cache file corrupted ({read_error}), re-downloading...")
-                            chunk_file.unlink()
+                        print(f"  Chunk ({i},{j}): loading from cache {chunk_file.name}")
+                        chunk_files.append(chunk_file)
+                        continue
                     
                     print(f"  Chunk ({i},{j}): downloading...")
                     try:
                         gdf_chunk = ox.features_from_bbox(bbox=sub_bbox, tags=tags)
                         if not gdf_chunk.empty:
-                            if 'ID' in gdf_chunk.columns:
-                                gdf_chunk = gdf_chunk.drop(columns=['ID'])
+                            # Safely drop columns that may or may not exist
+                            columns_to_drop = ['ID', 'Company']
+                            existing_cols = [col for col in columns_to_drop if col in gdf_chunk.columns]
+                            if existing_cols:
+                                gdf_chunk = gdf_chunk.drop(columns=existing_cols)
+                            
                             # Save chunk immediately
                             gdf_chunk.to_file(chunk_file, driver="GPKG")
-                            tmp_files.append(chunk_file)
+                            chunk_files.append(chunk_file)
                             print(f"    -> {len(gdf_chunk)} features (saved to cache)")
                             del gdf_chunk
                         else:
@@ -237,13 +308,10 @@ class OSMFetcher:
                             chunk_file.unlink()
                             print(f"    -> Removed incomplete cache file")
             
-            if tmp_files:
-                self._raw_gdf = gpd.GeoDataFrame()
-                for tmp_file in tmp_files:
-                    chunk = gpd.read_file(tmp_file)
-                    self._raw_gdf = pd.concat([self._raw_gdf, chunk], ignore_index=True)
-                    print(f"  Merged {len(chunk)} features from {tmp_file.name}")
-                    del chunk
+            if chunk_files:
+                self._chunk_files = chunk_files
+                self._save_chunk_metadata()
+                print(f"Successfully processed {len(chunk_files)} chunks (lazy loading mode).")
             else:
                 print("Warning: No data found for the given box and tags.")
                 self._raw_gdf = gpd.GeoDataFrame()
@@ -271,6 +339,7 @@ class OSMFetcher:
     ) -> gpd.GeoDataFrame:
         """
         Filter the pre-fetched GeoDataFrame based on tags and/or a sub-bounding box.
+        For chunked data (large areas), only loads relevant chunks to save memory.
         
         Parameters
         ----------
@@ -287,11 +356,113 @@ class OSMFetcher:
         gpd.GeoDataFrame
             A filtered copy of the GeoDataFrame.
         """
-        if self._raw_gdf.empty:
-            return self._raw_gdf
+        # If we have the full dataset loaded, use it directly
+        if not self._raw_gdf.empty:
+            return self._filter_gdf(self._raw_gdf, filter_tags, sub_bbox)
+        
+        # If using chunked data, load only relevant chunks
+        if self._chunk_files:
+            if sub_bbox is not None:
+                # Find and load only chunks that intersect with sub_bbox
+                relevant_chunks = self._find_relevant_chunks(sub_bbox)
+                if relevant_chunks:
+                    print(f"Loading {len(relevant_chunks)} relevant chunks out of {len(self._chunk_files)}")
+                    combined_gdf = gpd.GeoDataFrame()
+                    for chunk_file in relevant_chunks:
+                        chunk = gpd.read_file(chunk_file)
+                        if not chunk.empty:
+                            combined_gdf = pd.concat([combined_gdf, chunk], ignore_index=True)
+                    return self._filter_gdf(combined_gdf, filter_tags, sub_bbox)
+                else:
+                    print("No relevant chunks found for the given sub_bbox.")
+                    return gpd.GeoDataFrame()
+            else:
+                # No spatial filter, but we need to apply tag filters
+                # Load all chunks (consider adding tag-based chunk filtering in the future)
+                print(f"Loading all {len(self._chunk_files)} chunks for tag filtering")
+                combined_gdf = gpd.GeoDataFrame()
+                for chunk_file in self._chunk_files:
+                    chunk = gpd.read_file(chunk_file)
+                    if not chunk.empty:
+                        combined_gdf = pd.concat([combined_gdf, chunk], ignore_index=True)
+                return self._filter_gdf(combined_gdf, filter_tags, None)
+        
+        # No data available
+        return gpd.GeoDataFrame()
+
+    def _find_relevant_chunks(
+        self, 
+        sub_bbox: tuple[float, float, float, float]
+    ) -> List[Path]:
+        """
+        Find chunk files that intersect with the given bounding box.
+        Uses cached metadata if available, otherwise reads from files.
+        
+        Parameters
+        ----------
+        sub_bbox
+            Bounding box as `(left, bottom, right, top)`.
+            
+        Returns
+        -------
+        List[Path]
+            List of chunk file paths that intersect with sub_bbox.
+        """
+        from shapely.geometry import box as shapely_box
+        
+        query_box = shapely_box(*sub_bbox)
+        relevant_chunks = []
+        
+        for chunk_file in self._chunk_files:
+            # Try to use cached metadata first
+            chunk_key = str(chunk_file)
+            if chunk_key in self._chunk_metadata:
+                chunk_bounds = self._chunk_metadata[chunk_key]
+                chunk_box = shapely_box(*chunk_bounds)
+                if query_box.intersects(chunk_box):
+                    relevant_chunks.append(chunk_file)
+            else:
+                # Fall back to reading from file
+                try:
+                    chunk_gdf = gpd.read_file(chunk_file, rows=10)
+                    if not chunk_gdf.empty:
+                        chunk_bounds = chunk_gdf.total_bounds
+                        chunk_box = shapely_box(*chunk_bounds)
+                        if query_box.intersects(chunk_box):
+                            relevant_chunks.append(chunk_file)
+                except Exception:
+                    continue
+        
+        return relevant_chunks
+
+    def _filter_gdf(
+        self, 
+        gdf: gpd.GeoDataFrame, 
+        filter_tags: Optional[Dict[str, Union[bool, str, List[str]]]] = None,
+        sub_bbox: Optional[tuple[float, float, float, float]] = None,
+    ) -> gpd.GeoDataFrame:
+        """
+        Apply tag and spatial filters to a GeoDataFrame.
+        
+        Parameters
+        ----------
+        gdf
+            GeoDataFrame to filter.
+        filter_tags
+            Tag filter dictionary. If None, no tag filtering is applied.
+        sub_bbox
+            Sub-bounding box. If None, no spatial filtering is applied.
+            
+        Returns
+        -------
+        gpd.GeoDataFrame
+            Filtered GeoDataFrame.
+        """
+        if gdf.empty:
+            return gdf
         
         # Start with all features
-        filtered_gdf = self._raw_gdf
+        filtered_gdf = gdf
         
         # Apply spatial filter if a sub-bbox is provided
         if sub_bbox is not None:
