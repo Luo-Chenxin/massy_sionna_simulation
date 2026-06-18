@@ -169,6 +169,11 @@ def step2_generate_ply_and_xml(splitter, all_blocks):
         row = block_info["row"]
         col = block_info["col"]
         block_name = block_info["name"]
+
+        block_dir = XML_DIR / block_name
+        if block_dir.exists():
+            print(f"Skipping {block_name} (directory already exists)")
+            continue
         
         print(f"\n{'='*60}")
         print(f"Processing {block_name} (row={row}, col={col})")
@@ -178,7 +183,6 @@ def step2_generate_ply_and_xml(splitter, all_blocks):
         meta = splitter.get_block_latlon_bounds(row, col)
         
         # Create output directories
-        block_dir = XML_DIR / block_name
         mesh_dir = block_dir / "meshes"
         mesh_dir.mkdir(parents=True, exist_ok=True)
         
