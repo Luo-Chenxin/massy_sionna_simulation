@@ -244,12 +244,10 @@ class RadioMapGenerator:
         # rm.rss has shape [num_tx, num_cols, num_rows]
         rss_tensor = rm.rss.numpy()    # shape: (N_tx, n_cols, n_rows)
 
-        rss_tensor = np.transpose(rss_tensor, (0, 2, 1))    # shape: (N_tx, n_rows, n_cols)
-
         # Remove overlop
-        rss_tensor = rss_tensor[self.crop_slice]    # shape: (N, n_rows_cropped, n_cols_cropped) 
+        rss_tensor = rss_tensor[self.crop_slice]    # shape: (N, n_cols_cropped, n_rows_cropped) 
 
         # Sum contributions from all transmitters
-        rss_map = rss_tensor.sum(axis=0)   # shape: (n_rows_cropped, n_cols_cropped) 
+        rss_map = rss_tensor.sum(axis=0)   # shape: (n_cols_cropped, n_rows_cropped) 
 
         return rss_map.astype(np.float32)
