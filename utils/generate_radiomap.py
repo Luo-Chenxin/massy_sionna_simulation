@@ -294,7 +294,7 @@ class RadioMapGenerator:
             max_depth=20,
             samples_per_tx=int(1e7),
             cell_size=mi.Point2f(self.resolution_m, self.resolution_m),
-            center=mi.Point3f(0.0, 0.0, 0.0),
+            center=mi.Point3f(0.0, 0.0, 1.5),
             size=mi.Point2f(x_size_m, y_size_m),
             orientation=mi.Point3f(0, 0, 0)
         )
